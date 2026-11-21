@@ -150,6 +150,14 @@ function loreOfOld(stack) {
     return out;
 }
 
+function slotCount(slots) {
+    return slots.length !== undefined ? slots.length : slots.size();
+}
+
+function slotAt(slots, i) {
+    return slots.length !== undefined ? slots[i] : slots.get(i);
+}
+
 function scanForge(mc, dumpToFile) {
     var title = null;
     try {
@@ -164,9 +172,10 @@ function scanForge(mc, dumpToFile) {
     var dump = ["title: " + title];
     loreError = "";
 
-    var limit = slots.size() > 36 ? slots.size() - 36 : slots.size();
+    var total = slotCount(slots);
+    var limit = total > 36 ? total - 36 : total;
     for (var i = 0; i < limit; i++) {
-        var stack = slots.get(i).getItem();
+        var stack = slotAt(slots, i).getItem();
         if (stack.isEmpty()) continue;
         var name = String(stack.getHoverName().getString());
         var lore = loreOf(stack);
@@ -200,7 +209,7 @@ function scanForge(mc, dumpToFile) {
         return true;
     }
 
-    if (isForge && slots.size() > 0) {
+    if (isForge && total > 0) {
         writeFile("./config/SushiTriggers/showtimers-forge-dump.txt", dump.join("\n"));
         var signature = found.length + ":" + (found.length > 0 ? found[0].name : "");
         if (signature !== lastSignature) {
