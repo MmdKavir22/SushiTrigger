@@ -8,6 +8,7 @@ var settings = {};
 var forgeEntries = [];
 var tickCount = 0;
 var failed = false;
+var lastSignature = "";
 
 function readFile(path) {
     try {
@@ -121,7 +122,8 @@ function scanForge(mc, dumpToFile) {
     var found = [];
     var dump = ["title: " + title];
 
-    for (var i = 0; i < slots.size(); i++) {
+    var limit = slots.size() > 36 ? slots.size() - 36 : slots.size();
+    for (var i = 0; i < limit; i++) {
         var stack = slots.get(i).getItem();
         if (stack.isEmpty()) continue;
         var name = String(stack.getHoverName().getString());
@@ -132,7 +134,7 @@ function scanForge(mc, dumpToFile) {
         var seconds = -1;
         var ready = false;
         for (var j = 0; j < lore.length; j++) {
-            if (/remaining/i.test(lore[j])) seconds = parseDuration(lore[j]);
+            if (/remaining|left|ends in|time/i.test(lore[j]) && parseDuration(lore[j]) >= 0) seconds = parseDuration(lore[j]);
             if (/collect/i.test(lore[j])) ready = true;
         }
         if (seconds >= 0 || ready) {
@@ -155,8 +157,16 @@ function scanForge(mc, dumpToFile) {
     }
 
     if (isForge && slots.size() > 0) {
-        forgeEntries = found;
-        saveForge();
+        writeFile("./config/SushiTriggers/showtimers-forge-dump.txt", dump.join("\n"));
+        var signature = found.length + ":" + (found.length > 0 ? found[0].name : "");
+        if (signature !== lastSignature) {
+            lastSignature = signature;
+            ChatLib.chat("&d[ShowTimers] &fforge: " + found.length + " timer(s) found" + (found.length === 0 ? " (dump saved: showtimers-forge-dump.txt)" : ""));
+        }
+        if (found.length > 0 || forgeEntries.length > 0) {
+            forgeEntries = found;
+            saveForge();
+        }
         return true;
     }
     return false;
@@ -185,7 +195,7 @@ function updatePanel() {
             colors.push(left <= 0 ? 0x55FF55 : (left <= 60 ? 0xFFFF55 : 0xFFFFFF));
         }
         if (forgeEntries.length === 0) {
-            lines.push("Forge: open the menu once");
+            lines.push("Forge: open the NPC menu once");
             colors.push(0xAAAAAA);
         }
     }
@@ -198,7 +208,7 @@ function updatePanel() {
 }
 
 // ---------- Menu ----------
-var MENU_IDS = ["enabled", "darkAuction", "forge", "clearForge"];
+var MENU_IDS = ["enabled", "darkAuction", "forge", "move", "clearForge"];
 
 function onoff(v) {
     return v ? "[ON]  " : "[OFF] ";
@@ -208,11 +218,21 @@ function menuLabel(id) {
     if (id === "enabled") return onoff(settings.enabled) + "Show timers on screen";
     if (id === "darkAuction") return onoff(settings.darkAuction) + "Dark Auction";
     if (id === "forge") return onoff(settings.forge) + "Forge";
+    if (id === "move") return "Move panel with mouse";
     if (id === "clearForge") return "Clear saved forge timers";
     return id;
 }
 
 function menuClick(id) {
+    if (id === "move") {
+        updatePanel();
+        Hud.edit("showtimers", function (x, y) {
+            settings.x = x;
+            settings.y = y;
+            saveSettings();
+        });
+        return;
+    }
     if (id === "clearForge") {
         forgeEntries = [];
         saveForge();
