@@ -1075,7 +1075,7 @@ class ScriptGui : Screen(Component.literal("SushiTriggers")) {
         private fun refresh() {
             val mc = Minecraft.getInstance()
             mc.execute {
-                val screen = Refl.get(mc, "screen")
+                val screen = com.sushitriggers.ctjs.minecraft.libs.GameUtil.screen()
                 if (screen is ScriptGui) screen.rebuild()
             }
         }

@@ -36,7 +36,7 @@ object Recorder {
     fun tick() {
         try {
             val mc = Minecraft.getInstance()
-            if (Refl.get(mc, "screen") != null) {
+            if (com.sushitriggers.ctjs.minecraft.libs.GameUtil.screen() != null) {
                 wasDown = false
                 return
             }

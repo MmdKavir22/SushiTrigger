@@ -31,6 +31,9 @@ class EntityData(
 object GameUtil {
     val mc: Minecraft get() = Minecraft.getInstance()
 
+    /** In 26.x the current screen lives on mc.gui, not on Minecraft */
+    fun screen(): Any? = Refl.call(Refl.get(mc, "gui"), "screen") ?: Refl.get(mc, "screen")
+
     fun item(stack: Any?, slot: Int): ItemData {
         if (stack == null || Refl.call(stack, "isEmpty") == true) {
             return ItemData(slot, "", 0, "empty", emptyArray())
@@ -245,9 +248,9 @@ object ClientLib {
 
     @JvmStatic fun isSingleplayer(): Boolean = Refl.call(GameUtil.mc, "hasSingleplayerServer") == true
 
-    @JvmStatic fun getScreenName(): String = Refl.get(GameUtil.mc, "screen")?.javaClass?.simpleName ?: ""
+    @JvmStatic fun getScreenName(): String = GameUtil.screen()?.javaClass?.simpleName ?: ""
 
-    @JvmStatic fun getScreenTitle(): String = Refl.text(Refl.call(Refl.get(GameUtil.mc, "screen"), "getTitle")) ?: ""
+    @JvmStatic fun getScreenTitle(): String = Refl.text(Refl.call(GameUtil.screen(), "getTitle")) ?: ""
 
     @JvmStatic fun closeScreen() = GameUtil.setScreen(null)
 
@@ -281,7 +284,7 @@ object ClientLib {
 
 @Suppress("unused")
 object ContainerLib {
-    private val screen get() = Refl.get(GameUtil.mc, "screen")
+    private val screen get() = GameUtil.screen()
     private val menu get() = Refl.get(GameUtil.mc.player, "containerMenu")
 
     @JvmStatic fun isOpen(): Boolean {

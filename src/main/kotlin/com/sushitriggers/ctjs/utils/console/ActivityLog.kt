@@ -157,7 +157,7 @@ object ActivityLog {
         safe { ChatWatcher.tick(mc) }
         val player = mc.player
 
-        val screenName = Refl.get(mc, "screen")?.javaClass?.simpleName
+        val screenName = com.sushitriggers.ctjs.minecraft.libs.GameUtil.screen()?.javaClass?.simpleName
         if (screenName != lastScreen) {
             if (screenName != null) event("SCREEN opened: $screenName")
             else if (lastScreen != null) event("SCREEN closed: $lastScreen")
