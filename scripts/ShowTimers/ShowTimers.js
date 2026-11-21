@@ -97,7 +97,48 @@ function darkAuctionLine() {
 }
 
 // ---------- Forge ----------
+function currentScreen(mc) {
+    try {
+        return mc.gui.screen();
+    } catch (e) {
+        return null;
+    }
+}
+
+var loreError = "";
+
+function tooltipLore(stack) {
+    var out = [];
+    try {
+        var ctxClass = java.lang.Class.forName("net.minecraft.world.item.Item$TooltipContext");
+        var flagClass = java.lang.Class.forName("net.minecraft.world.item.TooltipFlag");
+        var ctx = ctxClass.getField("EMPTY").get(null);
+        var flag = flagClass.getField("NORMAL").get(null);
+        var lines = stack.getTooltipLines(ctx, Minecraft.getInstance().player, flag);
+        for (var i = 1; i < lines.size(); i++) out.push(String(lines.get(i).getString()));
+    } catch (e) {
+        loreError += " tooltip:" + e;
+    }
+    return out;
+}
+
 function loreOf(stack) {
+    var out = [];
+    try {
+        var DC = Packages.net.minecraft.core.component.DataComponents;
+        var lore = stack.get(DC.LORE);
+        if (lore != null) {
+            var lines = lore.lines();
+            for (var i = 0; i < lines.size(); i++) out.push(String(lines.get(i).getString()));
+        }
+    } catch (e) {
+        loreError += " lore:" + e;
+    }
+    if (out.length === 0) out = tooltipLore(stack);
+    return out;
+}
+
+function loreOfOld(stack) {
     var out = [];
     try {
         var DC = Packages.net.minecraft.core.component.DataComponents;
@@ -112,7 +153,7 @@ function loreOf(stack) {
 function scanForge(mc, dumpToFile) {
     var title = null;
     try {
-        title = mc.screen != null ? String(mc.screen.getTitle().getString()) : null;
+        title = currentScreen(mc) != null ? String(currentScreen(mc).getTitle().getString()) : null;
     } catch (e) {}
     if (title == null) return false;
     var isForge = title.toLowerCase().indexOf("forge") >= 0;
@@ -121,6 +162,7 @@ function scanForge(mc, dumpToFile) {
     var slots = mc.player.containerMenu.slots;
     var found = [];
     var dump = ["title: " + title];
+    loreError = "";
 
     var limit = slots.size() > 36 ? slots.size() - 36 : slots.size();
     for (var i = 0; i < limit; i++) {
@@ -128,7 +170,7 @@ function scanForge(mc, dumpToFile) {
         if (stack.isEmpty()) continue;
         var name = String(stack.getHoverName().getString());
         var lore = loreOf(stack);
-        dump.push("slot " + i + ": " + name);
+        dump.push("slot " + i + ": " + name + " (lore lines: " + lore.length + ")");
         for (var k = 0; k < lore.length; k++) dump.push("    " + lore[k]);
 
         var seconds = -1;
@@ -150,6 +192,8 @@ function scanForge(mc, dumpToFile) {
             });
         }
     }
+
+    if (loreError) dump.push("errors:" + loreError);
 
     if (dumpToFile) {
         writeFile("./config/SushiTriggers/showtimers-forge-dump.txt", dump.join("\n"));
@@ -256,7 +300,7 @@ register("tick", function () {
     var mc = Minecraft.getInstance();
     if (mc.player == null) return;
     try {
-        if (tickCount % 10 === 0 && mc.screen != null) scanForge(mc, false);
+        if (tickCount % 10 === 0 && currentScreen(mc) != null) scanForge(mc, false);
         if (tickCount % 5 === 0) updatePanel();
     } catch (e) {
         if (!failed) {
@@ -284,7 +328,7 @@ register("command", function (a, b, c) {
     if (a === "dump") {
         var mc = Minecraft.getInstance();
         var ok = false;
-        try { ok = mc.screen != null && scanForge(mc, true); } catch (e) { ok = false; }
+        try { ok = currentScreen(mc) != null && scanForge(mc, true); } catch (e) { ok = false; }
         ChatLib.chat(ok ? "&a[ShowTimers] saved config/SushiTriggers/showtimers-forge-dump.txt" : "&c[ShowTimers] open the Forge menu first");
         return;
     }
