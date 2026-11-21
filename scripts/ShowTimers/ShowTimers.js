@@ -115,7 +115,7 @@ function tooltipLore(stack) {
         var ctx = ctxClass.getField("EMPTY").get(null);
         var flag = flagClass.getField("NORMAL").get(null);
         var lines = stack.getTooltipLines(ctx, Minecraft.getInstance().player, flag);
-        for (var i = 1; i < lines.size(); i++) out.push(String(lines.get(i).getString()));
+        for (var i = 1; i < slotCount(lines); i++) out.push(String(slotAt(lines,i).getString()));
     } catch (e) {
         loreError += " tooltip:" + e;
     }
@@ -129,7 +129,7 @@ function loreOf(stack) {
         var lore = stack.get(DC.LORE);
         if (lore != null) {
             var lines = lore.lines();
-            for (var i = 0; i < lines.size(); i++) out.push(String(lines.get(i).getString()));
+            for (var i = 0; i < slotCount(lines); i++) out.push(String(slotAt(lines,i).getString()));
         }
     } catch (e) {
         loreError += " lore:" + e;
@@ -145,7 +145,7 @@ function loreOfOld(stack) {
         var lore = stack.get(DC.LORE);
         if (lore == null) return out;
         var lines = lore.lines();
-        for (var i = 0; i < lines.size(); i++) out.push(String(lines.get(i).getString()));
+        for (var i = 0; i < slotCount(lines); i++) out.push(String(slotAt(lines,i).getString()));
     } catch (e) {}
     return out;
 }
