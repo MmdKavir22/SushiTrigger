@@ -194,10 +194,14 @@ function scanForge(mc, dumpToFile) {
                 var mm = /^Item:?\s*(.+)$/i.exec(lore[n]);
                 if (mm) itemName = mm[1];
             }
+            var newEnd = seconds >= 0 ? Date.now() + seconds * 1000 : Date.now();
+            for (var q = 0; q < forgeEntries.length; q++) {
+                if (forgeEntries[q].slot === i && forgeEntries[q].name === itemName && Math.abs(forgeEntries[q].end - newEnd) < 2500) newEnd = forgeEntries[q].end;
+            }
             found.push({
                 slot: i,
                 name: itemName,
-                end: seconds >= 0 ? Date.now() + seconds * 1000 : Date.now()
+                end: newEnd
             });
         }
     }
@@ -225,6 +229,10 @@ function scanForge(mc, dumpToFile) {
     return false;
 }
 
+function forgeKey(e) {
+    return "slot" + e.slot;
+}
+
 // ---------- Panel ----------
 function updatePanel() {
     if (!settings.enabled) {
@@ -243,7 +251,8 @@ function updatePanel() {
 
     if (settings.forge) {
         for (var i = 0; i < forgeEntries.length; i++) {
-            var left = Math.round((forgeEntries[i].end - Date.now()) / 1000);
+            if (settings.hidden[forgeKey(forgeEntries[i])]) continue;
+            var left = Math.ceil((forgeEntries[i].end - Date.now()) / 1000);
             lines.push(forgeEntries[i].name + ": " + (left <= 0 ? "READY" : fmt(left)));
             colors.push(left <= 0 ? 0x55FF55 : (left <= 60 ? 0xFFFF55 : 0xFFFFFF));
         }
@@ -261,7 +270,7 @@ function updatePanel() {
 }
 
 // ---------- Menu ----------
-var MENU_IDS = ["enabled", "darkAuction", "forge", "move", "clearForge"];
+var MENU_IDS = ["enabled", "darkAuction", "forge", "forgeItems", "move", "clearForge"];
 
 function onoff(v) {
     return v ? "[ON]  " : "[OFF] ";
@@ -271,12 +280,39 @@ function menuLabel(id) {
     if (id === "enabled") return onoff(settings.enabled) + "Show timers on screen";
     if (id === "darkAuction") return onoff(settings.darkAuction) + "Dark Auction";
     if (id === "forge") return onoff(settings.forge) + "Forge";
+    if (id === "forgeItems") return "Forge items... (choose which to show)";
+    if (id.indexOf("fi:") === 0) {
+        var e = forgeEntries[parseInt(id.substring(3), 10)];
+        return e ? onoff(!settings.hidden[forgeKey(e)]) + "Slot " + e.slot + ": " + e.name : id;
+    }
+    if (id === "back") return "< Back";
     if (id === "move") return "Move panel with mouse";
     if (id === "clearForge") return "Clear saved forge timers";
     return id;
 }
 
+function openForgeItems() {
+    var ids = [];
+    for (var i = 0; i < forgeEntries.length; i++) ids.push("fi:" + i);
+    ids.push("back");
+    if (forgeEntries.length === 0) ChatLib.chat("&d[ShowTimers] &fopen the Forge menu once first");
+    Menu.open("ShowTimers - Forge items", ids, forgeItemClick, menuLabel);
+}
+
+function forgeItemClick(id) {
+    if (id === "back") { openMenu(); return; }
+    var e = forgeEntries[parseInt(id.substring(3), 10)];
+    if (e) {
+        var k = forgeKey(e);
+        settings.hidden[k] = !settings.hidden[k];
+        saveSettings();
+        updatePanel();
+    }
+    openForgeItems();
+}
+
 function menuClick(id) {
+    if (id === "forgeItems") { openForgeItems(); return; }
     if (id === "move") {
         updatePanel();
         Hud.edit("showtimers", function (x, y) {
@@ -302,6 +338,7 @@ function openMenu() {
 
 // ---------- Triggers ----------
 loadSettings();
+if (!settings.hidden) settings.hidden = {};
 loadForge();
 
 register("tick", function () {
@@ -310,7 +347,7 @@ register("tick", function () {
     if (mc.player == null) return;
     try {
         if (tickCount % 10 === 0 && currentScreen(mc) != null) scanForge(mc, false);
-        if (tickCount % 5 === 0) updatePanel();
+        updatePanel();
     } catch (e) {
         if (!failed) {
             failed = true;
