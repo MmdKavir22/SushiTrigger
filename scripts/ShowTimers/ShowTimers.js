@@ -526,25 +526,31 @@ function pickLeft(slot) {
     return t === undefined ? 0 : t - Date.now();
 }
 
+var pickBound = {}; // item name -> ability name
+
 register("chat", function (msg) {
     msg = String(msg);
-    var slot = Player.getSelectedSlot();
-    if (!isWhitelisted(Player.getHeldItem().name)) return;
+    var item = stripCodes(Player.getHeldItem().name);
+    if (!item || !isWhitelisted(item)) return;
+
     var used = /You used your (.+?) Pickaxe Ability!/i.exec(msg);
     if (used) {
-        var cd = PICK_COOLDOWNS[used[1].toLowerCase()];
-        pickTimers[slot] = Date.now() + (cd === undefined ? 120 : cd) * 1000;
+        var ability = used[1].toLowerCase();
+        if (pickBound[item] !== undefined && pickBound[item] !== ability) return;
+        pickBound[item] = ability;
+        var cd = PICK_COOLDOWNS[ability];
+        pickTimers[item] = Date.now() + (cd === undefined ? 120 : cd) * 1000;
         return;
     }
     var cool = /on cooldown for (\d+)\s*s/i.exec(msg);
     if (cool) {
-        pickTimers[slot] = Date.now() + parseInt(cool[1], 10) * 1000;
+        if (pickBound[item] === undefined) return;
+        pickTimers[item] = Date.now() + parseInt(cool[1], 10) * 1000;
         return;
     }
-    if (/is now available!/i.test(msg)) {
-        for (var k in pickTimers) {
-            if (pickLeft(k) > 0 && pickLeft(k) < 3000) delete pickTimers[k];
-        }
+    if (/is now available!/i.test(msg) && pickBound[item] !== undefined) {
+        var l = pickLeft(item);
+        if (l > 0 && l < 3000) delete pickTimers[item];
     }
 });
 
@@ -553,9 +559,11 @@ register("renderOverlay", function () {
     var w = Hud.width();
     var h = Hud.height();
     for (var i = 0; i < 9; i++) {
-        var left = pickLeft(i);
+        var name = stripCodes(Player.getItem(i).name);
+        if (!name) continue;
+        var left = pickLeft(name);
         if (left <= 0) {
-            if (pickTimers[i] !== undefined) delete pickTimers[i];
+            if (pickTimers[name] !== undefined) delete pickTimers[name];
             continue;
         }
         var secs = Math.ceil(left / 1000);
