@@ -164,7 +164,7 @@ function scanForge(mc, dumpToFile) {
         title = currentScreen(mc) != null ? String(currentScreen(mc).getTitle().getString()) : null;
     } catch (e) {}
     if (title == null) return false;
-    var isForge = title.toLowerCase().indexOf("forge") >= 0;
+    var isForge = title.indexOf("ShowTimers") < 0 && title.toLowerCase().indexOf("forge") >= 0;
     if (!isForge && !dumpToFile) return false;
 
     var slots = mc.player.containerMenu.slots;
@@ -270,7 +270,7 @@ function updatePanel() {
 }
 
 // ---------- Menu ----------
-var MENU_IDS = ["enabled", "darkAuction", "forge", "forgeItems", "move", "clearForge"];
+var MENU_IDS = ["enabled", "darkAuction", "forgeItems", "move", "clearForge"];
 
 function onoff(v) {
     return v ? "[ON]  " : "[OFF] ";
@@ -280,7 +280,8 @@ function menuLabel(id) {
     if (id === "enabled") return onoff(settings.enabled) + "Show timers on screen";
     if (id === "darkAuction") return onoff(settings.darkAuction) + "Dark Auction";
     if (id === "forge") return onoff(settings.forge) + "Forge";
-    if (id === "forgeItems") return "Forge items... (choose which to show)";
+    if (id === "forgeItems") return onoff(settings.forge) + "Forge  >  (items)";
+    if (id === "forge") return onoff(settings.forge) + "Forge timers";
     if (id.indexOf("fi:") === 0) {
         var e = forgeEntries[parseInt(id.substring(3), 10)];
         return e ? onoff(!settings.hidden[forgeKey(e)]) + "Slot " + e.slot + ": " + e.name : id;
@@ -294,13 +295,15 @@ function menuLabel(id) {
 function openForgeItems() {
     var ids = [];
     for (var i = 0; i < forgeEntries.length; i++) ids.push("fi:" + i);
+    ids.unshift("forge");
     ids.push("back");
-    if (forgeEntries.length === 0) ChatLib.chat("&d[ShowTimers] &fopen the Forge menu once first");
-    Menu.open("ShowTimers - Forge items", ids, forgeItemClick, menuLabel);
+    if (forgeEntries.length === 0) ChatLib.chat("&d[ShowTimers] &fopen the NPC Forge once to list items");
+    Menu.open("ShowTimers Settings", ids, forgeItemClick, menuLabel);
 }
 
 function forgeItemClick(id) {
     if (id === "back") { openMenu(); return; }
+    if (id === "forge") { settings.forge = !settings.forge; saveSettings(); updatePanel(); openForgeItems(); return; }
     var e = forgeEntries[parseInt(id.substring(3), 10)];
     if (e) {
         var k = forgeKey(e);
