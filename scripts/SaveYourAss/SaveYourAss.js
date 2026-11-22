@@ -57,10 +57,68 @@ function actionBarText(mc) {
     return "";
 }
 
+function tabLines(mc) {
+    var out = [];
+    try {
+        var conn = mc.getConnection();
+        var infos = conn.getOnlinePlayers().toArray();
+        for (var i = 0; i < infos.length; i++) {
+            try {
+                var d = infos[i].getTabListDisplayName();
+                if (d != null) out.push(String(d.getString()));
+            } catch (e) {}
+        }
+    } catch (e) {}
+    return out;
+}
+
+function bossLines(mc) {
+    var out = [];
+    try {
+        var hud = mc.gui;
+        var c = hud.getClass();
+        while (c != null) {
+            var fs = c.getDeclaredFields();
+            for (var i = 0; i < fs.length; i++) {
+                fs[i].setAccessible(true);
+                var v = fs[i].get(hud);
+                if (v != null && String(v.getClass().getName()).toLowerCase().indexOf("hud") >= 0 && String(v.getClass().getName()).indexOf("Gui") < 0) {
+                    var f2 = v.getClass().getDeclaredFields();
+                    for (var j = 0; j < f2.length; j++) {
+                        f2[j].setAccessible(true);
+                        var b = f2[j].get(v);
+                        if (b != null && String(b.getClass().getName()).toLowerCase().indexOf("bossoverlay") >= 0) {
+                            var f3 = b.getClass().getDeclaredFields();
+                            for (var k = 0; k < f3.length; k++) {
+                                f3[k].setAccessible(true);
+                                var ev = f3[k].get(b);
+                                if (ev != null && ev.values) {
+                                    var arr = ev.values().toArray();
+                                    for (var q = 0; q < arr.length; q++) out.push(String(arr[q].getName().getString()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            c = c.getSuperclass();
+        }
+    } catch (e) {}
+    return out;
+}
+
 function candidates(mc) {
     var out = [];
     var ab = actionBarText(mc);
     if (ab) out.push(["actionbar", ab]);
+    var tl = tabLines(mc);
+    for (var t = 0; t < tl.length; t++) out.push(["tab", tl[t]]);
+    var bl = bossLines(mc);
+    for (var u = 0; u < bl.length; u++) out.push(["bossbar", bl[u]]);
+    try {
+        var held = Player.getHeldItem();
+        if (held && held.lore) for (var h = 0; h < held.lore.length; h++) out.push(["heldlore", String(held.lore[h])]);
+    } catch (e) {}
     try {
         var sb = World.getScoreboard();
         for (var i = 0; i < sb.length; i++) out.push(["scoreboard", String(sb[i])]);
