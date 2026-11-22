@@ -486,8 +486,35 @@ function hoveredItemName(mc) {
     return null;
 }
 
+function loreCooldown(item) {
+    var lore = item.lore;
+    if (!lore) return -1;
+    for (var i = 0; i < lore.length; i++) {
+        var m = /Cooldown:\s*(\d+(?:\.\d+)?)\s*s/i.exec(stripCodes(lore[i]));
+        if (m) return parseFloat(m[1]);
+    }
+    return -1;
+}
+
+function rightClickTick(mc) {
+    var down = Packages.org.lwjgl.glfw.GLFW.glfwGetMouseButton(windowHandle(mc), 1) === 1;
+    if (down && !rightWasDown && currentScreen(mc) == null && settings.enabled && settings.pickCooldown) {
+        var held = Player.getHeldItem();
+        var name = stripCodes(held.name);
+        if (name && isWhitelisted(name) && pickLeft(name) <= 0) {
+            var cd = loreCooldown(held);
+            if (cd > 0) {
+                pickTimers[name] = Date.now() + cd * 1000;
+                pickStart[name] = Date.now();
+            }
+        }
+    }
+    rightWasDown = down;
+}
+
 function keyTick() {
     var mc = Minecraft.getInstance();
+    rightClickTick(mc);
     if (waitingKey) {
         for (var code = 32; code <= 348; code++) {
             if (code === 256) continue;
@@ -526,6 +553,8 @@ function pickLeft(slot) {
     return t === undefined ? 0 : t - Date.now();
 }
 
+var pickStart = {};
+var rightWasDown = false;
 var pickBound = {}; // item name -> ability name
 
 register("chat", function (msg) {
@@ -544,11 +573,15 @@ register("chat", function (msg) {
     }
     var cool = /on cooldown for (\d+)\s*s/i.exec(msg);
     if (cool) {
-        if (pickBound[item] === undefined) return;
+        if (pickBound[item] === undefined && pickTimers[item] === undefined) return;
         pickTimers[item] = Date.now() + parseInt(cool[1], 10) * 1000;
         return;
     }
-    if (/is now available!/i.test(msg) && pickBound[item] !== undefined) {
+    if (/not have enough mana|not enough mana/i.test(msg) && pickStart[item] !== undefined && Date.now() - pickStart[item] < 2500) {
+        delete pickTimers[item];
+        return;
+    }
+    if (/is now available!/i.test(msg) && pickTimers[item] !== undefined) {
         var l = pickLeft(item);
         if (l > 0 && l < 3000) delete pickTimers[item];
     }
