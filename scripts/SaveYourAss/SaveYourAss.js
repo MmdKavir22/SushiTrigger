@@ -2,7 +2,7 @@ var Minecraft = Packages.net.minecraft.client.Minecraft;
 var SETTINGS_FILE = "./config/SushiTriggers/saveyourass.json";
 var SWORD = "florid zombie sword";
 
-var defaults = { enabled: false, threshold: 40, click: "left", clicks: 3 };
+var defaults = { enabled: false, threshold: 40, click: "left", clicks: 3, cost: 25 };
 var settings = {};
 
 function loadSettings() {
@@ -26,23 +26,80 @@ function stripCodes(t) {
     return String(t).replace(/§./g, "").trim();
 }
 
-function findSword() {
-    for (var i = 0; i < 9; i++) {
-        var it = Player.getItem(i);
-        if (it && it.name && stripCodes(it.name).toLowerCase().indexOf(SWORD) >= 0) return i;
-    }
-    return -1;
+// ---------- Vitality reading ----------
+var lastVit = null;
+var lastVitSrc = "";
+var lastVitTime = 0;
+
+function numFrom(text) {
+    var t = stripCodes(text).replace(/,/g, "");
+    var m = /vitality\D{0,12}(\d+(?:\.\d+)?)/i.exec(t) || /(\d+(?:\.\d+)?)\s*\S{0,2}\s*vitality/i.exec(t);
+    return m ? parseFloat(m[1]) : null;
 }
 
-// state machine: 0 idle, 1 switch, 2 clicking, 3 switch back
+function actionBarText(mc) {
+    try {
+        var gui = mc.gui;
+        var c = gui.getClass();
+        while (c != null) {
+            var fs = c.getDeclaredFields();
+            for (var i = 0; i < fs.length; i++) {
+                var n = String(fs[i].getName()).toLowerCase();
+                if (n.indexOf("overlaymessage") >= 0 && n.indexOf("time") < 0 && n.indexOf("animate") < 0) {
+                    fs[i].setAccessible(true);
+                    var v = fs[i].get(gui);
+                    if (v != null) return String(v.getString ? v.getString() : v);
+                }
+            }
+            c = c.getSuperclass();
+        }
+    } catch (e) {}
+    return "";
+}
+
+function candidates(mc) {
+    var out = [];
+    var ab = actionBarText(mc);
+    if (ab) out.push(["actionbar", ab]);
+    try {
+        var sb = World.getScoreboard();
+        for (var i = 0; i < sb.length; i++) out.push(["scoreboard", String(sb[i])]);
+    } catch (e) {}
+    return out;
+}
+
+function readVitality(mc) {
+    var c = candidates(mc);
+    for (var i = 0; i < c.length; i++) {
+        var v = numFrom(c[i][1]);
+        if (v !== null) {
+            lastVit = v;
+            lastVitSrc = c[i][0];
+            lastVitTime = Date.now();
+            return v;
+        }
+    }
+    if (lastVit !== null && Date.now() - lastVitTime < 4000) return lastVit;
+    return null;
+}
+
+register("chat", function (msg) {
+    var v = numFrom(msg);
+    if (v !== null) { lastVit = v; lastVitSrc = "chat"; lastVitTime = Date.now(); }
+});
+
+// ---------- Logic ----------
+// state: 0 idle, 1 switch, 2 clicking, 3 switch back
 var state = 0;
 var wait = 0;
-var clicksLeft = 0;
+var clicksDone = 0;
+var clicksMax = 0;
+var vitStart = 0;
 var prevSlot = 0;
 var swordSlot = 0;
-var cooldownUntil = 0;
-var armed = true;
+var coolTicks = 0;
 var errShown = false;
+var warnedVit = false;
 
 function doClick(mc) {
     var hand = Packages.net.minecraft.world.InteractionHand.MAIN_HAND;
@@ -55,18 +112,41 @@ function hpPercent() {
     return max > 0 ? Player.getHealth() / max * 100 : 100;
 }
 
-function start(force) {
+function findSword() {
+    for (var i = 0; i < 9; i++) {
+        var it = Player.getItem(i);
+        if (it && it.name && stripCodes(it.name).toLowerCase().indexOf(SWORD) >= 0) return i;
+    }
+    return -1;
+}
+
+function start(mc, force) {
     var slot = findSword();
     if (slot < 0) {
         if (force) ChatLib.chat("&c[SaveYourAss] Florid Zombie Sword not found in hotbar");
         return false;
     }
+    var vit = readVitality(mc);
+    if (vit === null) {
+        if (!warnedVit || force) {
+            warnedVit = true;
+            ChatLib.chat("&c[SaveYourAss] cannot read Vitality. Run /saveyourass vit");
+        }
+        return false;
+    }
+    var affordable = Math.floor(vit / settings.cost);
+    var n = Math.min(settings.clicks, affordable);
+    if (n < 1) {
+        if (force) ChatLib.chat("&e[SaveYourAss] not enough Vitality (" + vit + ", need " + settings.cost + ")");
+        return false;
+    }
     swordSlot = slot;
     prevSlot = Player.getSelectedSlot();
-    clicksLeft = settings.clicks;
-    state = 1;
+    clicksMax = n;
+    clicksDone = 0;
+    vitStart = vit;
+    state = (prevSlot === slot) ? 2 : 1;
     wait = 0;
-    cooldownUntil = Date.now() + 5000;
     return true;
 }
 
@@ -75,13 +155,11 @@ register("tick", function () {
     if (mc.player == null) return;
     try {
         if (state === 0) {
+            if (coolTicks > 0) { coolTicks--; return; }
             if (!settings.enabled) return;
-            var pct = hpPercent();
-            if (pct >= settings.threshold) { armed = true; return; }
-            if (armed && Date.now() > cooldownUntil && mc.gui.screen() == null) {
-                armed = false;
-                if (start(false)) ChatLib.chat("&d[SaveYourAss] &fHP " + Math.round(pct) + "% - using Florid Zombie Sword");
-            }
+            if (hpPercent() >= settings.threshold) return;
+            if (mc.gui.screen() != null) return;
+            start(mc, false);
             return;
         }
         if (state === 1) {
@@ -92,16 +170,19 @@ register("tick", function () {
         }
         if (state === 2) {
             if (wait > 0) { wait--; return; }
+            var expected = vitStart - clicksDone * settings.cost;
+            var more = clicksDone < clicksMax && expected >= settings.cost && hpPercent() < settings.threshold;
+            if (!more) { state = 3; wait = 1; return; }
             doClick(mc);
-            clicksLeft--;
+            clicksDone++;
             wait = 1;
-            if (clicksLeft <= 0) state = 3;
             return;
         }
         if (state === 3) {
             if (wait > 0) { wait--; return; }
-            Player.setSelectedSlot(prevSlot);
+            if (Player.getSelectedSlot() !== prevSlot) Player.setSelectedSlot(prevSlot);
             state = 0;
+            coolTicks = 8;
         }
     } catch (e) {
         state = 0;
@@ -112,13 +193,15 @@ register("tick", function () {
     }
 });
 
-var IDS = ["enabled", "threshold-", "threshold+", "click", "test"];
+var IDS = ["enabled", "threshold-", "threshold+", "clicks-", "clicks+", "click", "test"];
 
 function label(id) {
     if (id === "enabled") return (settings.enabled ? "[ON]  " : "[OFF] ") + "Save your ass";
     if (id === "threshold-") return "HP threshold: " + settings.threshold + "%   (click: -5)";
     if (id === "threshold+") return "HP threshold: " + settings.threshold + "%   (click: +5)";
-    if (id === "click") return "Click type: " + (settings.click === "left" ? "LEFT x" : "RIGHT x") + settings.clicks;
+    if (id === "clicks-") return "Max clicks: " + settings.clicks + "   (click: -1)";
+    if (id === "clicks+") return "Max clicks: " + settings.clicks + "   (click: +1)";
+    if (id === "click") return "Click type: " + (settings.click === "left" ? "LEFT" : "RIGHT");
     if (id === "test") return "Test now";
     return id;
 }
@@ -128,7 +211,9 @@ function onClick(id) {
     else if (id === "threshold-") settings.threshold = Math.max(5, settings.threshold - 5);
     else if (id === "threshold+") settings.threshold = Math.min(95, settings.threshold + 5);
     else if (id === "click") settings.click = settings.click === "left" ? "right" : "left";
-    else if (id === "test") { saveSettings(); start(true); return; }
+    else if (id === "clicks+") settings.clicks = Math.min(10, settings.clicks + 1);
+    else if (id === "clicks-") settings.clicks = Math.max(1, settings.clicks - 1);
+    else if (id === "test") { saveSettings(); start(Minecraft.getInstance(), true); return; }
     saveSettings();
     openMenu();
 }
@@ -142,6 +227,27 @@ register("command", function (a, b) {
         settings.threshold = Math.max(1, Math.min(99, parseInt(b, 10)));
         saveSettings();
         ChatLib.chat("&d[SaveYourAss] &fthreshold " + settings.threshold + "%");
+        return;
+    }
+    if (a === "cost" && !isNaN(parseInt(b, 10))) {
+        settings.cost = Math.max(1, parseInt(b, 10));
+        saveSettings();
+        ChatLib.chat("&d[SaveYourAss] &fvitality cost per click " + settings.cost);
+        return;
+    }
+    if (a === "vit") {
+        var mc = Minecraft.getInstance();
+        var v = readVitality(mc);
+        ChatLib.chat("&d[SaveYourAss] &fvitality: " + v + " (source: " + lastVitSrc + ")");
+        var c = candidates(mc);
+        var lines = [];
+        for (var i = 0; i < c.length; i++) lines.push(c[i][0] + ": " + stripCodes(c[i][1]));
+        try {
+            var w = new java.io.FileWriter("./config/SushiTriggers/saveyourass-dump.txt");
+            w.write(lines.join("\n"));
+            w.close();
+            ChatLib.chat("&d[SaveYourAss] &fsaved config/SushiTriggers/saveyourass-dump.txt");
+        } catch (e) {}
         return;
     }
     openMenu();
