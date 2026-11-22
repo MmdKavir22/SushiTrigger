@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.0.1). Leave empty for a build without a release."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -20,19 +25,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 9.8.2
+      - name: Set version
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        run: sed -i "s/^mod_version=.*/mod_version=${{ inputs.version }}/" gradle.properties
       - run: gradle build --no-daemon
       - name: Find jar
         run: echo "JAR=$(ls build/libs/*.jar | grep -v -e sources -e dev | head -1)" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
-          name: ctjs-fabric-26.2
+          name: sushitriggers-fabric-26.2
           path: ${{ env.JAR }}
       - name: Publish release
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: SushiTriggers Fabric 26.2 - build ${{ github.run_number }}
-          body: Automatic build of commit ${{ github.sha }}
+          tag_name: v${{ inputs.version }}
+          name: SushiTriggers ${{ inputs.version }} (Fabric 26.2)
+          body: SushiTriggers ${{ inputs.version }} for Minecraft 26.2
           files: ${{ env.JAR }}
           make_latest: true
