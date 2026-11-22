@@ -3,7 +3,7 @@ var Minecraft = Packages.net.minecraft.client.Minecraft;
 var SETTINGS_FILE = "./config/SushiTriggers/showtimers-settings.json";
 var FORGE_FILE = "./config/SushiTriggers/showtimers-forge.json";
 
-var defaults = { enabled: true, darkAuction: true, forge: true, x: 6, y: 70 };
+var defaults = { enabled: true, darkAuction: true, forge: true, pickCooldown: true, x: 6, y: 70 };
 var settings = {};
 var forgeEntries = [];
 var tickCount = 0;
@@ -37,6 +37,7 @@ function loadSettings() {
     for (var k in defaults) {
         settings[k] = saved[k] !== undefined ? saved[k] : defaults[k];
     }
+    settings.hidden = (saved.hidden && typeof saved.hidden === "object") ? saved.hidden : {};
 }
 
 function saveSettings() {
@@ -270,7 +271,7 @@ function updatePanel() {
 }
 
 // ---------- Menu ----------
-var MENU_IDS = ["enabled", "darkAuction", "forgeItems", "move", "clearForge"];
+var MENU_IDS = ["enabled", "darkAuction", "pickCooldown", "forgeItems", "move", "clearForge"];
 
 function onoff(v) {
     return v ? "[ON]  " : "[OFF] ";
@@ -279,12 +280,13 @@ function onoff(v) {
 function menuLabel(id) {
     if (id === "enabled") return onoff(settings.enabled) + "Show timers on screen";
     if (id === "darkAuction") return onoff(settings.darkAuction) + "Dark Auction";
+    if (id === "pickCooldown") return onoff(settings.pickCooldown) + "Pickaxe ability cooldown (hotbar)";
     if (id === "forge") return onoff(settings.forge) + "Forge";
     if (id === "forgeItems") return onoff(settings.forge) + "Forge  >  (items)";
     if (id === "forge") return onoff(settings.forge) + "Forge timers";
     if (id.indexOf("fi:") === 0) {
         var e = forgeEntries[parseInt(id.substring(3), 10)];
-        return e ? onoff(!settings.hidden[forgeKey(e)]) + "Slot " + e.slot + ": " + e.name : id;
+        return e ? onoff(!settings.hidden[forgeKey(e)]) + "Slot " + (e.slot - 9) + ": " + e.name : id;
     }
     if (id === "back") return "< Back";
     if (id === "move") return "Move panel with mouse";
@@ -391,5 +393,63 @@ register("command", function (a, b, c) {
     }
     openMenu();
 }).setName("showtimer");
+
+// ---------- Pickaxe ability cooldown on hotbar ----------
+var PICK_COOLDOWNS = {
+    "mining speed boost": 120,
+    "pickobulus": 110,
+    "maniac miner": 59,
+    "vein seeker": 60,
+    "anomalous desire": 110,
+    "gemstone infusion": 120,
+    "sheer force": 120
+};
+var pickTimers = {};
+
+function pickLeft(slot) {
+    var t = pickTimers[slot];
+    return t === undefined ? 0 : t - Date.now();
+}
+
+register("chat", function (msg) {
+    msg = String(msg);
+    var slot = Player.getSelectedSlot();
+    var used = /You used your (.+?) Pickaxe Ability!/i.exec(msg);
+    if (used) {
+        var cd = PICK_COOLDOWNS[used[1].toLowerCase()];
+        pickTimers[slot] = Date.now() + (cd === undefined ? 120 : cd) * 1000;
+        return;
+    }
+    var cool = /on cooldown for (\d+)\s*s/i.exec(msg);
+    if (cool) {
+        pickTimers[slot] = Date.now() + parseInt(cool[1], 10) * 1000;
+        return;
+    }
+    if (/is now available!/i.test(msg)) {
+        for (var k in pickTimers) {
+            if (pickLeft(k) > 0 && pickLeft(k) < 3000) delete pickTimers[k];
+        }
+    }
+});
+
+register("renderOverlay", function () {
+    if (!settings.enabled || !settings.pickCooldown) return;
+    var w = Hud.width();
+    var h = Hud.height();
+    for (var i = 0; i < 9; i++) {
+        var left = pickLeft(i);
+        if (left <= 0) {
+            if (pickTimers[i] !== undefined) delete pickTimers[i];
+            continue;
+        }
+        var secs = Math.ceil(left / 1000);
+        var label = String(secs);
+        var x = Math.floor(w / 2) - 90 + i * 20 + 2;
+        var y = h - 19;
+        Hud.rect(x, y, 16, 16, 0xAA000000 | 0);
+        var color = secs <= 5 ? 0xFF55FF55 : (secs <= 15 ? 0xFFFFFF55 : 0xFFFFFFFF);
+        Hud.text(label, x + 8 - Math.floor(Hud.textWidth(label) / 2), y + 4, color | 0);
+    }
+});
 
 ChatLib.chat("&d[ShowTimers] &7loaded. /showtimer opens the settings menu");
