@@ -3,7 +3,7 @@ var Minecraft = Packages.net.minecraft.client.Minecraft;
 var SETTINGS_FILE = "./config/SushiTriggers/showtimers-settings.json";
 var FORGE_FILE = "./config/SushiTriggers/showtimers-forge.json";
 
-var defaults = { enabled: true, darkAuction: true, forge: true, pickCooldown: true, x: 6, y: 70 };
+var defaults = { enabled: true, darkAuction: true, forge: true, pickCooldown: true, abilityKey: 75, x: 6, y: 70 };
 var settings = {};
 var forgeEntries = [];
 var tickCount = 0;
@@ -37,6 +37,7 @@ function loadSettings() {
     for (var k in defaults) {
         settings[k] = saved[k] !== undefined ? saved[k] : defaults[k];
     }
+    settings.whitelist = (saved.whitelist && saved.whitelist.length !== undefined) ? saved.whitelist : [];
     settings.hidden = (saved.hidden && typeof saved.hidden === "object") ? saved.hidden : {};
 }
 
@@ -174,6 +175,12 @@ function scanForge(mc, dumpToFile) {
     loreError = "";
 
     var total = slotCount(slots);
+    var populated = false;
+    for (var pi = 0; pi < total && pi < 54; pi++) {
+        var ps = slotAt(slots, pi).getItem();
+        if (!ps.isEmpty() && /^(close|claim all|forge recipes)$/i.test(String(ps.getHoverName().getString()))) { populated = true; break; }
+    }
+    if (isForge && !populated && !dumpToFile) return true;
     var limit = total > 36 ? total - 36 : total;
     for (var i = 0; i < limit; i++) {
         var stack = slotAt(slots, i).getItem();
@@ -271,7 +278,7 @@ function updatePanel() {
 }
 
 // ---------- Menu ----------
-var MENU_IDS = ["enabled", "darkAuction", "pickCooldown", "forgeItems", "move", "clearForge"];
+var MENU_IDS = ["enabled", "darkAuction", "abilityTimer", "forgeItems", "move", "clearForge"];
 
 function onoff(v) {
     return v ? "[ON]  " : "[OFF] ";
@@ -280,7 +287,10 @@ function onoff(v) {
 function menuLabel(id) {
     if (id === "enabled") return onoff(settings.enabled) + "Show timers on screen";
     if (id === "darkAuction") return onoff(settings.darkAuction) + "Dark Auction";
-    if (id === "pickCooldown") return onoff(settings.pickCooldown) + "Pickaxe ability cooldown (hotbar)";
+    if (id === "abilityTimer") return onoff(settings.pickCooldown) + "Ability Timer  >";
+    if (id === "abOn") return onoff(settings.pickCooldown) + "Ability Timer";
+    if (id === "abKey") return waitingKey ? "Press a key now..." : "Whitelist key: " + keyName(settings.abilityKey) + "  (click to change)";
+    if (id.indexOf("wl:") === 0) return "[X] " + (settings.whitelist[parseInt(id.substring(3), 10)] || id) + "  (click to remove)";
     if (id === "forge") return onoff(settings.forge) + "Forge";
     if (id === "forgeItems") return onoff(settings.forge) + "Forge  >  (items)";
     if (id === "forge") return onoff(settings.forge) + "Forge timers";
@@ -316,7 +326,27 @@ function forgeItemClick(id) {
     openForgeItems();
 }
 
+function openAbilityMenu() {
+    var ids = ["abOn", "abKey"];
+    for (var i = 0; i < settings.whitelist.length; i++) ids.push("wl:" + i);
+    ids.push("back");
+    if (settings.whitelist.length === 0) ChatLib.chat("&d[ShowTimers] &fwhitelist empty: all items count. Open inventory, hover an item and press the key to add it");
+    Menu.open("ShowTimers Settings", ids, abilityClick, menuLabel);
+}
+
+function abilityClick(id) {
+    if (id === "back") { openMenu(); return; }
+    if (id === "abOn") { settings.pickCooldown = !settings.pickCooldown; saveSettings(); }
+    else if (id === "abKey") { waitingKey = true; }
+    else if (id.indexOf("wl:") === 0) {
+        settings.whitelist.splice(parseInt(id.substring(3), 10), 1);
+        saveSettings();
+    }
+    openAbilityMenu();
+}
+
 function menuClick(id) {
+    if (id === "abilityTimer") { openAbilityMenu(); return; }
     if (id === "forgeItems") { openForgeItems(); return; }
     if (id === "move") {
         updatePanel();
@@ -344,6 +374,7 @@ function openMenu() {
 // ---------- Triggers ----------
 loadSettings();
 if (!settings.hidden) settings.hidden = {};
+if (!settings.whitelist) settings.whitelist = [];
 loadForge();
 
 register("tick", function () {
@@ -351,6 +382,7 @@ register("tick", function () {
     var mc = Minecraft.getInstance();
     if (mc.player == null) return;
     try {
+        keyTick();
         if (tickCount % 10 === 0 && currentScreen(mc) != null) scanForge(mc, false);
         updatePanel();
     } catch (e) {
@@ -405,6 +437,89 @@ var PICK_COOLDOWNS = {
     "sheer force": 120
 };
 var pickTimers = {};
+var waitingKey = false;
+var keyWasDown = false;
+
+function stripCodes(t) {
+    return String(t).replace(/\u00a7./g, "").trim();
+}
+
+function isWhitelisted(name) {
+    if (settings.whitelist.length === 0) return true;
+    return settings.whitelist.indexOf(stripCodes(name)) >= 0;
+}
+
+function keyName(code) {
+    try {
+        var n = Packages.org.lwjgl.glfw.GLFW.glfwGetKeyName(code, 0);
+        if (n != null) return String(n).toUpperCase();
+    } catch (e) {}
+    return "key " + code;
+}
+
+function windowHandle(mc) {
+    var w = mc.getWindow();
+    try { return w.handle(); } catch (e) {}
+    return w.getWindow();
+}
+
+function isDown(mc, code) {
+    return Packages.org.lwjgl.glfw.GLFW.glfwGetKey(windowHandle(mc), code) === 1;
+}
+
+function hoveredItemName(mc) {
+    var scr = currentScreen(mc);
+    if (scr == null) return null;
+    var c = scr.getClass();
+    while (c != null) {
+        try {
+            var f = c.getDeclaredField("hoveredSlot");
+            f.setAccessible(true);
+            var slot = f.get(scr);
+            if (slot == null) return null;
+            var st = slot.getItem();
+            if (st.isEmpty()) return null;
+            return stripCodes(st.getHoverName().getString());
+        } catch (e) {}
+        c = c.getSuperclass();
+    }
+    return null;
+}
+
+function keyTick() {
+    var mc = Minecraft.getInstance();
+    if (waitingKey) {
+        for (var code = 32; code <= 348; code++) {
+            if (code === 256) continue;
+            if (isDown(mc, code)) {
+                settings.abilityKey = code;
+                saveSettings();
+                waitingKey = false;
+                keyWasDown = true;
+                ChatLib.chat("&d[ShowTimers] &fwhitelist key: " + keyName(code));
+                openAbilityMenu();
+                return;
+            }
+        }
+        return;
+    }
+    var down = isDown(mc, settings.abilityKey);
+    if (down && !keyWasDown && currentScreen(mc) != null) {
+        var name = hoveredItemName(mc);
+        if (name) {
+            var idx = settings.whitelist.indexOf(name);
+            if (idx >= 0) {
+                settings.whitelist.splice(idx, 1);
+                ChatLib.chat("&d[ShowTimers] &cremoved &f" + name + " &cfrom ability whitelist");
+            } else {
+                settings.whitelist.push(name);
+                ChatLib.chat("&d[ShowTimers] &aadded &f" + name + " &ato ability whitelist");
+            }
+            saveSettings();
+        }
+    }
+    keyWasDown = down;
+}
 
 function pickLeft(slot) {
     var t = pickTimers[slot];
@@ -414,6 +529,7 @@ function pickLeft(slot) {
 register("chat", function (msg) {
     msg = String(msg);
     var slot = Player.getSelectedSlot();
+    if (!isWhitelisted(Player.getHeldItem().name)) return;
     var used = /You used your (.+?) Pickaxe Ability!/i.exec(msg);
     if (used) {
         var cd = PICK_COOLDOWNS[used[1].toLowerCase()];
